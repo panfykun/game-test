@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>カードゲーム</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+        }
+        #game-board {
+            max-width: 400px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .sub-stats {
+            background-color: #e9ecef;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+            color: #333;
+            text-align: left;
+        }
+        .sub-stats div {
+            margin: 3px 0;
+            display: flex;
+            justify-content: space-between;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 5px;
+            margin-bottom: 20px;
+        }
+        .card {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.9em;
+            border: 2px solid #ccc;
+            border-radius: 5px;
+            background-color: #fff;
+            cursor: default;
+            user-select: none;
+            transition: all 0.2s;
+        }
+        .card.hidden {
+            background-color: #007bff;
+            color: transparent;
+            border-color: #0056b3;
+            cursor: pointer;
+        }
+        .card.hidden:hover {
+            background-color: #0056b3;
+        }
+        .card.hidden.disabled {
+            cursor: default;
+            background-color: #007bff; 
+        }
+        .card.revealed {
+            cursor: default;
+        }
+        .card.selected {
+            border-color: #ff0000;
+            box-shadow: 0 0 8px rgba(255,0,0,0.8);
+            transform: scale(1.05);
+            z-index: 1;
+        }
+        
+        .controls button {
+            padding: 10px 20px;
+            font-size: 1em;
+            margin: 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+        }
+        #btn-play {
+            background-color: #28a745;
+        }
+        #btn-play:hover:not(:disabled) {
+            background-color: #218838;
+        }
+        #btn-play:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #btn-auto {
+            background-color: #17a2b8; 
+        }
+        #btn-auto:hover {
+            background-color: #138496;
+        }
+        .action-buttons {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+        .action-buttons button {
+            background-color: #6c757d;
+            padding: 8px 16px;
+            font-size: 0.9em;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 0 5px;
+        }
+        .action-buttons button:hover {
+            background-color: #5a6268;
+        }
+        #btn-reset {
+            background-color: #dc3545;
+        }
+        #btn-reset:hover {
+            background-color: #c82333;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-board">
+    <div class="stats">
+        <div>ポイント: <span id="points-display">1000</span></div>
+        <div>モード: <span id="mode-display">1</span></div>
+    </div>
+    
+    <div class="sub-stats">
+        <div>
+            <span>連チャン回数: <strong id="combo-display">0</strong> 回</span>
+            <span>(最大: <span id="max-combo-display">0</span> 回)</span>
+        </div>
+        <div>
+            <span>獲得ポイント: <strong id="earned-display">0</strong> P</span>
+            <span>(最大: <span id="max-earned-display">0</span> P)</span>
+        </div>
+    </div>
+
+    <div class="grid" id="card-grid">
+        </div>
+
+    <div class="controls">
+        <button id="btn-play">プレイ開始 (-10P)</button>
+        <button id="btn-auto">オートON</button>
+    </div>
+
+    <div class="action-buttons" id="action-buttons" style="display: none;">
+        <button id="btn-save">セーブ</button>
+        <button id="btn-reset">初期化</button>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // ゲーム設定
+    // ==========================================
+    const CONFIG = {
+        initialPoints: 1000,
+        playCost: 10,
+        mode3UpProbability: 0.01,
+        
+        deckBlueprints: {
+            1: [
+                { text: 'OUT', type: 'OUT', count: 24 },
+                { text: 'UP', type: 'UP', count: 1 }
+            ],
+            2: [
+                { text: '+50P', type: 'ADD', value: 50, count: 15 },
+                { text: '+100P', type: 'ADD', value: 100, count: 4 },
+                { text: 'UP', type: 'UP', count: 1 },
+                { text: 'OUT', type: 'OUT', count: 5 }
+            ],
+            3: [
+                { text: '+50P', type: 'ADD', value: 100, count: 20 },
+                { text: '+100P', type: 'ADD', value: 200, count: 4 },
+                { text: 'OUT', type: 'OUT', count: 1 }
+            ],
+            4: [
+                { text: '+100P', type: 'ADD', value: 100, count: 10 },
+                { text: '+300P', type: 'ADD', value: 300, count: 10 },
+                { text: '+1000P', type: 'ADD', value: 1000, count: 4 },
+                { text: 'DOWN', type: 'DOWN', count: 1 }
+            ],
+            default: [
+                { text: 'OUT', type: 'OUT', count: 25 }
+            ]
+        }
+    };
+
+    // ==========================================
+    // 状態管理変数
+    // ==========================================
+    let points = CONFIG.initialPoints;
+    let mode = 1;
+    let state = 'idle'; // 'idle', 'playing', 'ended'
+    let currentDeck = [];
+    
+    // オートプレイ用
+    let isAutoPlay = false;
+    let autoPlayInterval = null;
+
+    // 連チャン・獲得ポイント用
+    let comboCount = 0;
+    let earnedPoints = 0;
+    let maxComboCount = 0;
+    let maxEarnedPoints = 0;
+    let lastCardType = null; // 直前に引いたカードのタイプを記憶
+
+    // ==========================================
+    // DOM要素の取得
+    // ==========================================
+    const pointsDisplay = document.getElementById('points-display');
+    const modeDisplay = document.getElementById('mode-display');
+    const comboDisplay = document.getElementById('combo-display');
+    const earnedDisplay = document.getElementById('earned-display');
+    const maxComboDisplay = document.getElementById('max-combo-display');
+    const maxEarnedDisplay = document.getElementById('max-earned-display');
+    
+    const gridContainer = document.getElementById('card-grid');
+    const btnPlay = document.getElementById('btn-play');
+    const btnAuto = document.getElementById('btn-auto');
+    const actionButtons = document.getElementById('action-buttons');
+    const btnSave = document.getElementById('btn-save');
+    const btnReset = document.getElementById('btn-reset');
+
+    // ==========================================
+    // 初期化とロード
+    // ==========================================
+    function init() {
+        loadData();
+        generateInitialDeck();
+        renderGrid('all');
+        updateUI();
+    }
+
+    function generateDeck() {
+        const blueprint = CONFIG.deckBlueprints[mode] || CONFIG.deckBlueprints.default;
+        let deck = [];
+
+        blueprint.forEach(bp => {
+            for (let i = 0; i < bp.count; i++) {
+                deck.push({ text: bp.text, type: bp.type, value: bp.value || 0 });
+            }
+        });
+
+        if (mode === 3 && Math.random() < CONFIG.mode3UpProbability) {
+            const randomIndex = Math.floor(Math.random() * deck.length);
+            deck[randomIndex] = { text: 'UP', type: 'UP', value: 0 };
+        }
+
+        for (let i = deck.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [deck[i], deck[j]] = [deck[j], deck[i]];
+        }
+
+        return deck;
+    }
+
+    function generateInitialDeck() {
+        currentDeck = generateDeck();
+    }
+
+    function updateUI() {
+        pointsDisplay.textContent = points;
+        modeDisplay.textContent = mode;
+        comboDisplay.textContent = comboCount;
+        earnedDisplay.textContent = earnedPoints;
+        maxComboDisplay.textContent = maxComboCount;
+        maxEarnedDisplay.textContent = maxEarnedPoints;
+        
+        btnPlay.disabled = (state === 'playing') || isAutoPlay;
+
+        if ((state === 'ended' || state === 'idle') && mode === 1 && !isAutoPlay) {
+            actionButtons.style.display = 'block';
+        } else {
+            actionButtons.style.display = 'none';
+        }
+    }
+
+    function renderGrid(renderMode, selectedIndex = -1) {
+        gridContainer.innerHTML = '';
+        currentDeck.forEach((card, index) => {
+            const cardEl = document.createElement('div');
+            cardEl.className = 'card';
+            
+            let isFaceUp = false;
+            if (renderMode === 'all') {
+                isFaceUp = true;
+            } else if (renderMode === 'single' && index === selectedIndex) {
+                isFaceUp = true;
+            }
+
+            if (isFaceUp) {
+                cardEl.textContent = card.text;
+                cardEl.classList.add('revealed');
+                if (renderMode === 'single' && index === selectedIndex) {
+                    cardEl.classList.add('selected');
+                }
+
+                if (card.type === 'OUT') cardEl.style.color = 'red';
+                else if (card.type === 'UP') cardEl.style.color = 'blue';
+                else if (card.type === 'DOWN') cardEl.style.color = 'purple';
+                else cardEl.style.color = 'green';
+            } else {
+                cardEl.classList.add('hidden');
+                
+                if (renderMode === 'none') {
+                    cardEl.addEventListener('click', () => {
+                        if (!isAutoPlay) handleCardClick(index);
+                    });
+                } else {
+                    cardEl.classList.add('disabled');
+                }
+            }
+
+            gridContainer.appendChild(cardEl);
+        });
+    }
+
+    // ==========================================
+    // イベント制御
+    // ==========================================
+
+    btnPlay.addEventListener('click', () => {
+        startPlayCycle();
+    });
+
+    btnAuto.addEventListener('click', () => {
+        isAutoPlay = !isAutoPlay;
+        if (isAutoPlay) {
+            btnAuto.textContent = 'オートOFF';
+            btnAuto.style.backgroundColor = '#dc3545';
+            executeAutoPlay(); 
+            autoPlayInterval = setInterval(executeAutoPlay, 1000);
+        } else {
+            btnAuto.textContent = 'オートON';
+            btnAuto.style.backgroundColor = '#17a2b8';
+            clearInterval(autoPlayInterval);
+            updateUI(); 
+        }
+    });
+
+    // プレイ開始時の処理
+    function startPlayCycle() {
+        if (points < CONFIG.playCost) {
+            alert('ポイントが足りません！');
+            return false;
+        }
+        
+        // 所持ポイントの消費
+        points -= CONFIG.playCost;
+        
+        // 連チャン・獲得ポイントの計算処理
+        if (lastCardType === 'OUT') {
+            // OUTを引いた後のプレイ開始なら0にリセット
+            comboCount = 0;
+            earnedPoints = 0;
+        } else {
+            // 0でない場合のみ10減算（獲得ポイント用）
+            if (earnedPoints !== 0) {
+                earnedPoints -= CONFIG.playCost;
+            }
+        }
+
+        state = 'playing';
+        currentDeck = generateDeck();
+        renderGrid('none');
+        updateUI();
+        return true;
+    }
+
+    // カードクリック時の処理
+    function handleCardClick(index) {
+        if (state !== 'playing') return;
+
+        state = 'ended';
+        const card = currentDeck[index];
+        lastCardType = card.type; // 引いたカードのタイプを記憶
+
+        switch (card.type) {
+            case 'OUT':
+                mode = 1;
+                break;
+            case 'UP':
+                mode += 1;
+                break;
+            case 'DOWN':
+                mode -= 1;
+                break;
+            case 'ADD':
+                points += card.value;
+                comboCount += 1; // ADDなら連チャン回数+1
+                earnedPoints += card.value; // ADDなら獲得ポイント加算
+                break;
+        }
+
+        // 最大値の更新
+        if (comboCount > maxComboCount) {
+            maxComboCount = comboCount;
+        }
+        if (earnedPoints > maxEarnedPoints) {
+            maxEarnedPoints = earnedPoints;
+        }
+
+        renderGrid('single', index);
+        updateUI();
+    }
+
+    function executeAutoPlay() {
+        if (points < CONFIG.playCost) {
+            btnAuto.click(); 
+            return;
+        }
+
+        if (state !== 'playing') {
+            startPlayCycle();
+        }
+
+        if (state === 'playing') {
+            const randomIndex = Math.floor(Math.random() * 25);
+            handleCardClick(randomIndex);
+        }
+    }
+
+    // ==========================================
+    // セーブ・ロード・初期化機能
+    // ==========================================
+    const SAVE_KEY = 'card_game_save_data';
+
+    function loadData() {
+        const savedData = localStorage.getItem(SAVE_KEY);
+        if (savedData) {
+            try {
+                const parsed = JSON.parse(savedData);
+                if (typeof parsed.points === 'number') points = parsed.points;
+                if (typeof parsed.maxComboCount === 'number') maxComboCount = parsed.maxComboCount;
+                if (typeof parsed.maxEarnedPoints === 'number') maxEarnedPoints = parsed.maxEarnedPoints;
+            } catch (e) {
+                console.error("セーブデータの読み込みに失敗しました", e);
+            }
+        }
+    }
+
+    btnSave.addEventListener('click', () => {
+        const dataToSave = { 
+            points: points,
+            maxComboCount: maxComboCount,
+            maxEarnedPoints: maxEarnedPoints
+        };
+        localStorage.setItem(SAVE_KEY, JSON.stringify(dataToSave));
+        alert('現在のデータをセーブしました！');
+    });
+
+    btnReset.addEventListener('click', () => {
+        if (confirm('本当に所持ポイントを初期化（1000P）しますか？\n※最大記録もリセットされます。')) {
+            points = CONFIG.initialPoints;
+            comboCount = 0;
+            earnedPoints = 0;
+            maxComboCount = 0;
+            maxEarnedPoints = 0;
+            lastCardType = null;
+            updateUI();
+            alert('初期化しました。');
+            
+            // ローカルストレージのデータもクリアしたい場合は以下を有効にします
+            // localStorage.removeItem(SAVE_KEY); 
+        }
+    });
+
+    // アプリ起動
+    init();
+
+</script>
+</body>
+</html>
