@@ -164,7 +164,7 @@
     </div>
 
     <div class="action-buttons" id="action-buttons" style="display: none;">
-        <button id="btn-save">セーブ</button>
+        <button id="btn-save">手動セーブ</button>
         <button id="btn-reset">初期化</button>
     </div>
 </div>
@@ -184,7 +184,7 @@
                 { text: 'UP', type: 'UP', count: 2 }
             ],
             2: [
-                { text: '+20P', type: 'ADD', value: 20, count: 15 },
+                { text: '+30P', type: 'ADD', value: 30, count: 15 },
                 { text: '+50P', type: 'ADD', value: 50, count: 4 },
                 { text: 'UP', type: 'UP', count: 1 },
                 { text: 'OUT', type: 'OUT', count: 5 }
@@ -223,7 +223,7 @@
     let earnedPoints = 0;
     let maxComboCount = 0;
     let maxEarnedPoints = 0;
-    let lastCardType = null; // 直前に引いたカードのタイプを記憶
+    let lastCardType = null;
 
     // ==========================================
     // DOM要素の取得
@@ -359,23 +359,18 @@
         }
     });
 
-    // プレイ開始時の処理
     function startPlayCycle() {
         if (points < CONFIG.playCost) {
             alert('ポイントが足りません！');
             return false;
         }
         
-        // 所持ポイントの消費
         points -= CONFIG.playCost;
         
-        // 連チャン・獲得ポイントの計算処理
         if (lastCardType === 'OUT') {
-            // OUTを引いた後のプレイ開始なら0にリセット
             comboCount = 0;
             earnedPoints = 0;
         } else {
-            // 0でない場合のみ10減算（獲得ポイント用）
             if (earnedPoints !== 0) {
                 earnedPoints -= CONFIG.playCost;
             }
@@ -385,16 +380,19 @@
         currentDeck = generateDeck();
         renderGrid('none');
         updateUI();
+        
+        // プレイ開始時のポイント減少をオートセーブ
+        executeSave(true); 
+        
         return true;
     }
 
-    // カードクリック時の処理
     function handleCardClick(index) {
         if (state !== 'playing') return;
 
         state = 'ended';
         const card = currentDeck[index];
-        lastCardType = card.type; // 引いたカードのタイプを記憶
+        lastCardType = card.type;
 
         switch (card.type) {
             case 'OUT':
@@ -408,12 +406,11 @@
                 break;
             case 'ADD':
                 points += card.value;
-                comboCount += 1; // ADDなら連チャン回数+1
-                earnedPoints += card.value; // ADDなら獲得ポイント加算
+                comboCount += 1;
+                earnedPoints += card.value;
                 break;
         }
 
-        // 最大値の更新
         if (comboCount > maxComboCount) {
             maxComboCount = comboCount;
         }
@@ -423,6 +420,9 @@
 
         renderGrid('single', index);
         updateUI();
+
+        // カードを引いた結果をオートセーブ
+        executeSave(true);
     }
 
     function executeAutoPlay() {
@@ -460,14 +460,22 @@
         }
     }
 
-    btnSave.addEventListener('click', () => {
+    // セーブ処理の共通化 (isAuto: trueならアラートを出さない)
+    function executeSave(isAuto = false) {
         const dataToSave = { 
             points: points,
             maxComboCount: maxComboCount,
             maxEarnedPoints: maxEarnedPoints
         };
         localStorage.setItem(SAVE_KEY, JSON.stringify(dataToSave));
-        alert('現在のデータをセーブしました！');
+        
+        if (!isAuto) {
+            alert('現在のデータをセーブしました！');
+        }
+    }
+
+    btnSave.addEventListener('click', () => {
+        executeSave(false); // 手動セーブ時はアラートを出す
     });
 
     btnReset.addEventListener('click', () => {
@@ -479,10 +487,11 @@
             maxEarnedPoints = 0;
             lastCardType = null;
             updateUI();
-            alert('初期化しました。');
             
-            // ローカルストレージのデータもクリアしたい場合は以下を有効にします
-            // localStorage.removeItem(SAVE_KEY); 
+            // 初期化した状態もオートセーブしておく
+            executeSave(true);
+            
+            alert('初期化しました。');
         }
     });
 
