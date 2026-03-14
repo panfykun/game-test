@@ -206,7 +206,7 @@
     const MAX_CROWNS = 2147483647;
     const MAX_SKILLP = 2147483647;
     const MAX_POINTS = 99999999;
-    const MAX_TIME = 100000; // 上限を100000に変更
+    const MAX_TIME = 100000;
     const MAX_BLOCK_PRICE = 100000000;
     const CELL_SIZE = 40;
 
@@ -242,17 +242,14 @@
         skills: [],
         totalTicks: 0,
         
-        // 深層モード用
         deepMode: false,
         deepTime: 0,
         deepPoints: 100,
         deepPpsMulti: 1.0,
         normalBlocks: {},
         
-        // 超加護の最終発動日時（Unix Time ミリ秒）
         lastSuperBlessingTime: 0,
 
-        // 記録
         records: {
             shortestRebirth: null,
             longestDeep: 0,
@@ -264,6 +261,7 @@
     let gameLoopInterval = null;
     let isGameRunning = false;
     let activeTab = 'blocks';
+    let currentInterval = 1000; // 現在のループ間隔（ミリ秒）
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -299,7 +297,6 @@
         }
     }
 
-    // ゲームリセット（初期化）処理
     function resetGame() {
         if (state.deepMode) return; 
         
@@ -316,13 +313,11 @@
         }
     }
 
-    // スキル効果の補助関数
     function getSkillLevel(id) {
         const s = state.skills.find(sk => sk.id === id);
         return s ? s.level : 0;
     }
 
-    // 計算関連
     function getBlockPrice(n) {
         let price = Math.pow(n, 2) * 10;
         for (let i = 0; i < state.blocks[n]; i++) {
@@ -376,8 +371,11 @@
         return false;
     }
 
-    // UI更新
     function switchTab(tabName) {
+        // 深層モード中はお守りタブへの切り替えをブロック
+        if (state.deepMode && tabName === 'amulets') {
+            return;
+        }
         activeTab = tabName;
         document.getElementById('shop-blocks').style.display = tabName === 'blocks' ? 'block' : 'none';
         document.getElementById('shop-amulets').style.display = tabName === 'amulets' ? 'block' : 'none';
@@ -388,7 +386,7 @@
     function updateUI() {
         state.points = Math.min(MAX_POINTS, Math.max(0, Math.floor(state.points)));
         state.deepPoints = Math.min(MAX_POINTS, Math.max(0, Math.floor(state.deepPoints)));
-        state.elapsedTime = Math.min(MAX_TIME, Math.max(0, Math.floor(state.elapsedTime))); // 上限適用
+        state.elapsedTime = Math.min(MAX_TIME, Math.max(0, Math.floor(state.elapsedTime)));
 
         document.getElementById('ui-crowns').innerText = `王冠: ${state.crowns}`;
         document.getElementById('ui-skillp').innerText = `スキルP: ${state.skillP}`;
@@ -396,6 +394,7 @@
 
         const hasSpecialBlock = grid.some(b => b !== null && typeof b === 'object');
         const btnSuper = document.getElementById('btn-super');
+        const tabAmulets = document.getElementById('tab-amulets');
 
         if (state.deepMode) {
             document.getElementById('ui-points').innerText = `深層ポイント: ${state.deepPoints}`;
@@ -404,6 +403,10 @@
             document.getElementById('btn-deep').style.display = 'none';
             document.getElementById('btn-init').style.visibility = 'hidden';
             btnSuper.style.display = 'none';
+            
+            // お守りタブを視覚的に無効化
+            tabAmulets.style.opacity = '0.5';
+            tabAmulets.style.cursor = 'not-allowed';
         } else {
             document.getElementById('ui-points').innerText = `ポイント: ${state.points}`;
             document.getElementById('ui-time').innerText = `経過時間: ${state.elapsedTime}秒`;
@@ -411,7 +414,10 @@
             document.getElementById('btn-deep').style.display = 'block';
             document.getElementById('btn-init').style.visibility = 'visible';
             
-            // 超加護ボタンの表示条件判定（通常モードかつ、盤面に特殊ブロックが無い）
+            // お守りタブを有効化
+            tabAmulets.style.opacity = '1';
+            tabAmulets.style.cursor = 'pointer';
+
             if (!hasSpecialBlock) {
                 btnSuper.style.display = 'block';
             } else {
@@ -448,12 +454,13 @@
             const price = getAmuletPrice(id);
             const isMax = count >= 5;
             const canBuy = !isDisableShop && !isMax && state.points >= price;
-            const desc = getAmuletDesc(id);
+            // 改行等の不具合防止のためエスケープ処理
+            const safeDescAm = getAmuletDesc(id).replace(/\n/g, '\\n').replace(/'/g, "\\'");
 
             shopAmulets.innerHTML += `
                 <div class="shop-item">
                     <div style="flex-grow:1;">
-                        <strong onmouseover="showTooltip(event, '${desc}')" onmouseout="hideTooltip()" style="text-decoration: underline dotted; cursor:help;">${AMULET_DATA[id].name}</strong><br>所持: ${count}<br>単価: ${isMax ? 'MAX' : price + ' P'}
+                        <strong onmouseover="showTooltip(event, '${safeDescAm}')" onmouseout="hideTooltip()" style="text-decoration: underline dotted; cursor:help;">${AMULET_DATA[id].name}</strong><br>所持: ${count}<br>単価: ${isMax ? 'MAX' : price + ' P'}
                     </div>
                     <button onclick="buyAmulet('${id}', ${price})" ${canBuy ? '' : 'disabled'}>購入</button>
                 </div>`;
@@ -469,11 +476,12 @@
                 const cost = 10 * Math.pow(2, sk.level);
                 const isMax = sk.level >= 10;
                 const canEnhance = !isDisableShop && !isMax && state.skillP >= cost;
-                const desc = getSkillDesc(sk.id, sk.level);
+                // 改行等の不具合防止のためエスケープ処理
+                const safeDescSk = getSkillDesc(sk.id, sk.level).replace(/\n/g, '\\n').replace(/'/g, "\\'");
                 
                 skillContainer.innerHTML += `
                     <div class="skill-row">
-                        <span class="skill-name" onmouseover="showTooltip(event, '${desc}')" onmouseout="hideTooltip()">${data.name} Lv.${sk.level}</span>
+                        <span class="skill-name" onmouseover="showTooltip(event, '${safeDescSk}')" onmouseout="hideTooltip()">${data.name} Lv.${sk.level}</span>
                         <div>
                             <span style="font-size:10px; margin-right:5px;">強化: ${isMax ? 'MAX' : cost + 'SP'}</span>
                             <button onclick="enhanceSkill(${i})" ${canEnhance ? '' : 'disabled'}>強化</button>
@@ -490,7 +498,6 @@
         }
     }
 
-    // 購入・スキル・アクション関連操作
     function buyBlock(n, price) {
         if (state.deepMode || price >= MAX_BLOCK_PRICE || state.points < price) return;
         state.points -= price;
@@ -551,15 +558,14 @@
         if (state.deepMode) return;
 
         const now = Date.now();
-        const cooldownMs = 12 * 60 * 60 * 1000; // 12時間
+        const cooldownMs = 60 * 60 * 1000;
         const nextTime = state.lastSuperBlessingTime + cooldownMs;
 
         if (now < nextTime) {
             const remainMs = nextTime - now;
             const totalMinutes = Math.ceil(remainMs / (60 * 1000));
-            const hours = Math.floor(totalMinutes / 60);
             const mins = totalMinutes % 60;
-            alert(`あと${hours}時間${mins}分後に実行できます。`);
+            alert(`あと${mins}分後に実行できます。`);
             return;
         }
 
@@ -568,8 +574,7 @@
             return;
         }
 
-        if (confirm("超加護を発動します。よろしいですか？\n※発動後、12時間後に再発動できます。")) {
-            // 盤面の空きマスと通常ブロックの場所を把握
+        if (confirm("超加護を発動します。よろしいですか？\n※発動後、1時間後に再発動できます。")) {
             let emptyIndices = [];
             let normalIndices = [];
             for (let i = 0; i < 81; i++) {
@@ -580,7 +585,6 @@
                 }
             }
 
-            // 空きマスが2つ未満の場合、通常ブロックをランダムに削除して確保する
             while (emptyIndices.length < 2) {
                 if (normalIndices.length > 0) {
                     const rIdx = Math.floor(Math.random() * normalIndices.length);
@@ -588,18 +592,16 @@
                     grid[targetGridIdx] = null;
                     emptyIndices.push(targetGridIdx);
                 } else {
-                    break; // 万が一削除できる通常ブロックも無い場合の安全策
+                    break;
                 }
             }
 
-            // 用意できた空きマスからランダムに2か所選ぶ
             emptyIndices.sort(() => Math.random() - 0.5);
             if (emptyIndices.length >= 2) {
                 grid[emptyIndices[0]] = { type: '777', age: 0 };
                 grid[emptyIndices[1]] = { type: 'inf', age: 0 };
             }
 
-            // 発動時間の記録とUI更新
             state.lastSuperBlessingTime = now;
             saveGame();
             drawGrid();
@@ -607,7 +609,6 @@
         }
     }
 
-    // ゲームループ管理
     function checkStartLoop() {
         if (isGameRunning) return;
         let totalBlocks = 0;
@@ -616,7 +617,10 @@
         if (totalBlocks > 0 || state.deepMode) {
             isGameRunning = true;
             setTimeout(() => {
-                if(isGameRunning) gameLoopInterval = setInterval(gameStep, 1000);
+                if(isGameRunning) {
+                    currentInterval = (state.deepMode && state.deepTime >= 1000) ? 100 : 1000;
+                    gameLoopInterval = setInterval(gameStep, currentInterval);
+                }
             }, 1000);
         }
     }
@@ -624,19 +628,23 @@
     function gameStep() {
         if (state.deepMode) {
             state.deepTime++;
+            // 滞在時間が1000秒に達した瞬間に10倍速化
+            if (state.deepTime === 1000 && currentInterval !== 100) {
+                clearInterval(gameLoopInterval);
+                currentInterval = 100;
+                gameLoopInterval = setInterval(gameStep, currentInterval);
+            }
         } else {
-            state.elapsedTime = Math.min(state.elapsedTime + 1, MAX_TIME); // 上限100000
+            state.elapsedTime = Math.min(state.elapsedTime + 1, MAX_TIME);
         }
 
         let hasInf = grid.some(b => b !== null && b.type === 'inf');
         let has777 = grid.some(b => b !== null && b.type === '777');
         
-        // 深層ではお守り無効
         const amLuck = state.deepMode ? 0 : state.amulets.luck;
         const amDurability = state.deepMode ? 0 : state.amulets.durability;
         const amUp = state.deepMode ? 0 : state.amulets.up;
 
-        // 1. 削除判定
         for (let i = 0; i < 81; i++) {
             const b = grid[i];
             if (b === null) continue;
@@ -659,11 +667,9 @@
             }
         }
 
-        // 判定後、特殊ブロック存在状況を再取得
         hasInf = grid.some(b => b !== null && b.type === 'inf');
         has777 = grid.some(b => b !== null && b.type === '777');
 
-        // 2. 生成判定
         for (let i = 0; i < 81; i++) {
             if (grid[i] === null) {
                 let candidates = [];
@@ -702,7 +708,6 @@
             }
         }
 
-        // 3. PPSとポイント加算
         let currentPPS = 0;
         for (let i = 0; i < 81; i++) {
             const b = grid[i];
@@ -742,7 +747,6 @@
             state.points += state.pps;
             if (state.points >= MAX_POINTS) {
                 state.points = MAX_POINTS;
-                // 高速周回の自動転生（通常モード時のみ）
                 if (getSkillLevel('speed_lap') > 0) {
                     doRebirth(true);
                 }
@@ -750,12 +754,13 @@
         }
 
         state.totalTicks++;
-        if (state.totalTicks % 10 === 0) saveGame();
+        // 10倍速の際、ローカルストレージへの過剰なセーブ（負荷）を防ぐための調整
+        const saveInterval = currentInterval === 100 ? 100 : 10;
+        if (state.totalTicks % saveInterval === 0) saveGame();
 
         drawGrid(); updateUI();
     }
 
-    // 描画関連
     function drawGrid() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.strokeStyle = state.deepMode ? '#555' : '#ccc';
@@ -782,7 +787,6 @@
         }
     }
 
-    // キャンバスインタラクション
     canvas.addEventListener('click', (e) => {
         const rect = canvas.getBoundingClientRect();
         const col = Math.floor((e.clientX - rect.left) / CELL_SIZE);
@@ -791,7 +795,7 @@
         
         if (col >= 0 && col < 9 && row >= 0 && row < 9) {
             const b = grid[index];
-            if (b !== null && typeof b === 'number') { // 特殊ブロックはクリック不可
+            if (b !== null && typeof b === 'number') { 
                 grid[index] = null;
                 drawGrid();
             }
@@ -816,7 +820,6 @@
     });
     canvas.addEventListener('mouseout', hideTooltip);
 
-    // モード切替と転生
     function enterDeepLayer() {
         if (state.crowns < 1) {
             alert("王冠が1個必要です。");
@@ -834,6 +837,12 @@
             grid.fill(null);
             state.pps = 0;
             
+            // 安全のため既存のループを確実に停止してリスタート
+            clearInterval(gameLoopInterval);
+            isGameRunning = false;
+            
+            if (activeTab === 'amulets') switchTab('blocks');
+            
             document.body.classList.add('dark-mode');
             saveGame(); updateUI(); drawGrid();
             checkStartLoop();
@@ -849,8 +858,12 @@
         grid.fill(null);
         state.pps = 0;
         
+        clearInterval(gameLoopInterval);
+        isGameRunning = false;
+        
         document.body.classList.remove('dark-mode');
         saveGame(); updateUI(); drawGrid();
+        checkStartLoop();
     }
 
     function rebirth() {
@@ -902,7 +915,6 @@
         if (isSpeedLap || getSkillLevel('speed_lap') > 0) checkStartLoop();
     }
 
-    // ツールチップ・記録関連
     function showTooltip(e, text) {
         const t = document.getElementById('tooltip');
         t.innerText = text;
