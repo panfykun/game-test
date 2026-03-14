@@ -132,7 +132,7 @@
         flex-grow: 1;
         gap: 5px;
     }
-    .action-btn { flex: 1; font-size: 16px; cursor: pointer; }
+    .action-btn { flex: 1; font-size: 14px; cursor: pointer; }
 
     /* ツールチップ（ホバー用） */
     #tooltip {
@@ -195,6 +195,7 @@
         <div class="action-buttons">
             <button id="btn-rebirth" class="action-btn" onclick="rebirth()">転生</button>
             <button id="btn-deep" class="action-btn" onclick="enterDeepLayer()">深層</button>
+            <button id="btn-super" class="action-btn" onclick="superBlessing()" style="display:none; color: #ff8c00; font-weight: bold;">超加護</button>
         </div>
     </div>
 
@@ -205,7 +206,7 @@
     const MAX_CROWNS = 2147483647;
     const MAX_SKILLP = 2147483647;
     const MAX_POINTS = 99999999;
-    const MAX_TIME = 2147483647;
+    const MAX_TIME = 100000; // 上限を100000に変更
     const MAX_BLOCK_PRICE = 100000000;
     const CELL_SIZE = 40;
 
@@ -238,7 +239,7 @@
         elapsedTime: 0,
         blocks: { 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 },
         amulets: { up:0, luck:0, durability:0 },
-        skills: [], // {id: 'rookie', level: 1} の配列(最大3)
+        skills: [],
         totalTicks: 0,
         
         // 深層モード用
@@ -246,8 +247,11 @@
         deepTime: 0,
         deepPoints: 100,
         deepPpsMulti: 1.0,
-        normalBlocks: {}, // 深層突入時のバックアップ
+        normalBlocks: {},
         
+        // 超加護の最終発動日時（Unix Time ミリ秒）
+        lastSuperBlessingTime: 0,
+
         // 記録
         records: {
             shortestRebirth: null,
@@ -283,10 +287,10 @@
             try {
                 const parsed = JSON.parse(saved);
                 Object.assign(state, parsed);
-                // 新規セーブデータの互換性確保
                 if (!state.records) state.records = { shortestRebirth: null, longestDeep: 0, maxPps: 0 };
                 if (!state.amulets) state.amulets = { up:0, luck:0, durability:0 };
                 if (!state.skills) state.skills = [];
+                if (state.lastSuperBlessingTime === undefined) state.lastSuperBlessingTime = 0;
             } catch (e) { console.error("セーブデータの読み込みに失敗"); }
         }
         
@@ -297,15 +301,13 @@
 
     // ゲームリセット（初期化）処理
     function resetGame() {
-        if (state.deepMode) return; // 深層モード時は無効
+        if (state.deepMode) return; 
         
         if (confirm("全てのデータを初期化します。よろしいですか？")) {
-            // 0000〜9999のランダムな4桁の数字を生成し、ゼロ埋めする
             const securityCode = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
             const userInput = prompt(`確認のため、表示された4桁の数字を半角で入力してください。\n(${securityCode})`);
             
             if (userInput === securityCode) {
-                // セーブデータ（JSON）を完全に削除してリロード
                 localStorage.removeItem('numberLifeGameSave');
                 location.reload();
             } else if (userInput !== null) {
@@ -320,7 +322,7 @@
         return s ? s.level : 0;
     }
 
-    // 計算関連（説明文置換含む）
+    // 計算関連
     function getBlockPrice(n) {
         let price = Math.pow(n, 2) * 10;
         for (let i = 0; i < state.blocks[n]; i++) {
@@ -384,26 +386,37 @@
     }
 
     function updateUI() {
-        // 数値補正
         state.points = Math.min(MAX_POINTS, Math.max(0, Math.floor(state.points)));
         state.deepPoints = Math.min(MAX_POINTS, Math.max(0, Math.floor(state.deepPoints)));
+        state.elapsedTime = Math.min(MAX_TIME, Math.max(0, Math.floor(state.elapsedTime))); // 上限適用
 
         document.getElementById('ui-crowns').innerText = `王冠: ${state.crowns}`;
         document.getElementById('ui-skillp').innerText = `スキルP: ${state.skillP}`;
         document.getElementById('ui-pps').innerText = `${state.pps} ポイント/秒`;
 
+        const hasSpecialBlock = grid.some(b => b !== null && typeof b === 'object');
+        const btnSuper = document.getElementById('btn-super');
+
         if (state.deepMode) {
             document.getElementById('ui-points').innerText = `深層ポイント: ${state.deepPoints}`;
             document.getElementById('ui-time').innerText = `滞在時間: ${state.deepTime}秒`;
-            document.getElementById('btn-rebirth').style.visibility = 'hidden';
-            document.getElementById('btn-deep').style.visibility = 'hidden';
-            document.getElementById('btn-init').style.visibility = 'hidden'; // 深層モード時は初期化ボタンを隠す
+            document.getElementById('btn-rebirth').style.display = 'none';
+            document.getElementById('btn-deep').style.display = 'none';
+            document.getElementById('btn-init').style.visibility = 'hidden';
+            btnSuper.style.display = 'none';
         } else {
             document.getElementById('ui-points').innerText = `ポイント: ${state.points}`;
             document.getElementById('ui-time').innerText = `経過時間: ${state.elapsedTime}秒`;
-            document.getElementById('btn-rebirth').style.visibility = 'visible';
-            document.getElementById('btn-deep').style.visibility = 'visible';
+            document.getElementById('btn-rebirth').style.display = 'block';
+            document.getElementById('btn-deep').style.display = 'block';
             document.getElementById('btn-init').style.visibility = 'visible';
+            
+            // 超加護ボタンの表示条件判定（通常モードかつ、盤面に特殊ブロックが無い）
+            if (!hasSpecialBlock) {
+                btnSuper.style.display = 'block';
+            } else {
+                btnSuper.style.display = 'none';
+            }
         }
 
         const isDisableShop = state.deepMode;
@@ -477,7 +490,7 @@
         }
     }
 
-    // 購入・スキル関連操作
+    // 購入・スキル・アクション関連操作
     function buyBlock(n, price) {
         if (state.deepMode || price >= MAX_BLOCK_PRICE || state.points < price) return;
         state.points -= price;
@@ -534,6 +547,66 @@
         saveGame(); updateUI();
     }
 
+    function superBlessing() {
+        if (state.deepMode) return;
+
+        const now = Date.now();
+        const cooldownMs = 12 * 60 * 60 * 1000; // 12時間
+        const nextTime = state.lastSuperBlessingTime + cooldownMs;
+
+        if (now < nextTime) {
+            const remainMs = nextTime - now;
+            const totalMinutes = Math.ceil(remainMs / (60 * 1000));
+            const hours = Math.floor(totalMinutes / 60);
+            const mins = totalMinutes % 60;
+            alert(`あと${hours}時間${mins}分後に実行できます。`);
+            return;
+        }
+
+        if (state.points < 100000) {
+            alert("100000ポイント所持時に実行できます。");
+            return;
+        }
+
+        if (confirm("超加護を発動します。よろしいですか？\n※発動後、12時間後に再発動できます。")) {
+            // 盤面の空きマスと通常ブロックの場所を把握
+            let emptyIndices = [];
+            let normalIndices = [];
+            for (let i = 0; i < 81; i++) {
+                if (grid[i] === null) {
+                    emptyIndices.push(i);
+                } else if (typeof grid[i] === 'number') {
+                    normalIndices.push(i);
+                }
+            }
+
+            // 空きマスが2つ未満の場合、通常ブロックをランダムに削除して確保する
+            while (emptyIndices.length < 2) {
+                if (normalIndices.length > 0) {
+                    const rIdx = Math.floor(Math.random() * normalIndices.length);
+                    const targetGridIdx = normalIndices.splice(rIdx, 1)[0];
+                    grid[targetGridIdx] = null;
+                    emptyIndices.push(targetGridIdx);
+                } else {
+                    break; // 万が一削除できる通常ブロックも無い場合の安全策
+                }
+            }
+
+            // 用意できた空きマスからランダムに2か所選ぶ
+            emptyIndices.sort(() => Math.random() - 0.5);
+            if (emptyIndices.length >= 2) {
+                grid[emptyIndices[0]] = { type: '777', age: 0 };
+                grid[emptyIndices[1]] = { type: 'inf', age: 0 };
+            }
+
+            // 発動時間の記録とUI更新
+            state.lastSuperBlessingTime = now;
+            saveGame();
+            drawGrid();
+            updateUI();
+        }
+    }
+
     // ゲームループ管理
     function checkStartLoop() {
         if (isGameRunning) return;
@@ -549,8 +622,11 @@
     }
 
     function gameStep() {
-        if (state.deepMode) state.deepTime++;
-        else state.elapsedTime++;
+        if (state.deepMode) {
+            state.deepTime++;
+        } else {
+            state.elapsedTime = Math.min(state.elapsedTime + 1, MAX_TIME); // 上限100000
+        }
 
         let hasInf = grid.some(b => b !== null && b.type === 'inf');
         let has777 = grid.some(b => b !== null && b.type === '777');
@@ -706,7 +782,7 @@
         }
     }
 
-    // キャンバスインタラクション（クリック削除・ホバーツールチップ）
+    // キャンバスインタラクション
     canvas.addEventListener('click', (e) => {
         const rect = canvas.getBoundingClientRect();
         const col = Math.floor((e.clientX - rect.left) / CELL_SIZE);
@@ -755,6 +831,9 @@
             state.normalBlocks = JSON.parse(JSON.stringify(state.blocks));
             for(let n=1; n<=9; n++) state.blocks[n] = 1;
             
+            grid.fill(null);
+            state.pps = 0;
+            
             document.body.classList.add('dark-mode');
             saveGame(); updateUI(); drawGrid();
             checkStartLoop();
@@ -766,6 +845,9 @@
         state.deepTime = 0;
         state.deepPoints = 0;
         state.blocks = JSON.parse(JSON.stringify(state.normalBlocks));
+        
+        grid.fill(null);
+        state.pps = 0;
         
         document.body.classList.remove('dark-mode');
         saveGame(); updateUI(); drawGrid();
@@ -782,7 +864,6 @@
     }
 
     function doRebirth(isSpeedLap) {
-        // 最短記録更新
         if (state.records.shortestRebirth === null || state.elapsedTime < state.records.shortestRebirth) {
             state.records.shortestRebirth = state.elapsedTime;
         }
@@ -792,7 +873,7 @@
         
         const er = getSkillLevel('expected_rookie');
         let t = state.elapsedTime > 0 ? state.elapsedTime : 1;
-        state.skillP += Math.floor((1000000 / t) * (1 + 0.1 * er));
+        state.skillP += Math.floor((100000 / t) * (1 + 0.1 * er));
         
         const ro = getSkillLevel('rookie');
         state.points = 10 * (ro > 0 ? 5 * ro : 1);
