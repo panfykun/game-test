@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>number life game</title>
+<style>
+    /* 全体のスタイル設定 */
+    body {
+        margin: 0;
+        padding: 10px;
+        font-family: sans-serif;
+        background-color: #f4f4f9;
+        color: #333;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        height: 100vh;
+        box-sizing: border-box;
+        overflow: hidden;
+        transition: background-color 0.3s, color 0.3s;
+    }
+    
+    /* 深層（ダークモード）時のスタイル */
+    body.dark-mode {
+        background-color: #222;
+        color: #eee;
+    }
+    body.dark-mode .header, body.dark-mode .shop-container, body.dark-mode .skill-container, body.dark-mode .records-panel {
+        background: #333;
+        border-color: #555;
+        color: #eee;
+    }
+    body.dark-mode .tab { background: #444; color: #aaa; border-bottom: 1px solid #555; }
+    body.dark-mode .tab.active { background: #333; color: #fff; border-bottom: 2px solid #ddd; }
+    body.dark-mode .shop-item, body.dark-mode .skill-row { border-color: #555; }
+    body.dark-mode button { background: #555; color: #fff; border: 1px solid #777; }
+    body.dark-mode canvas { border-color: #777; background-color: #444; }
+
+    /* 上部ステータスバー */
+    .header {
+        display: flex;
+        justify-content: space-between;
+        width: 100%;
+        max-width: 600px;
+        margin-bottom: 10px;
+        background: #fff;
+        padding: 10px;
+        border: 1px solid #ccc;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        position: relative;
+    }
+    .header-left, .header-center, .header-right {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .header-center { align-items: center; }
+    .header-right { align-items: flex-end; }
+    
+    .header-buttons {
+        display: flex;
+        gap: 5px;
+        margin-top: 5px;
+    }
+
+    /* 中央エリア（盤面とショップ） */
+    .main-area {
+        display: flex;
+        justify-content: center;
+        width: 100%;
+        max-width: 600px;
+        gap: 10px;
+    }
+
+    /* 盤面 */
+    canvas {
+        background-color: #fff;
+        border: 2px solid #333;
+        cursor: pointer;
+    }
+
+    /* ショップ */
+    .shop-container {
+        border: 1px solid #ccc;
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+    }
+    .tabs { display: flex; border-bottom: 1px solid #ccc; }
+    .tab { flex: 1; padding: 5px; text-align: center; cursor: pointer; background: #eee; font-size: 12px; }
+    .tab.active { background: #fff; font-weight: bold; border-bottom: 2px solid #333; }
+    .shop-content { padding: 10px; flex-grow: 1; }
+    .shop-item { border: 1px solid #ddd; padding: 5px; margin-bottom: 5px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .shop-item strong { font-size: 14px; }
+    .shop-item button { cursor: pointer; padding: 2px 5px; }
+
+    /* 下部エリア（スキルとボタン） */
+    .footer-area {
+        display: flex;
+        width: 100%;
+        max-width: 600px;
+        gap: 10px;
+        margin-top: 10px;
+    }
+    .skill-container {
+        border: 1px solid #ccc;
+        background: #fff;
+        padding: 5px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        overflow-y: auto;
+    }
+    .skill-row {
+        border: 1px dashed #aaa;
+        padding: 5px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 12px;
+        height: 30px;
+    }
+    .skill-name { font-weight: bold; cursor: help; text-decoration: underline dotted; }
+    
+    .action-buttons {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        flex-grow: 1;
+        gap: 5px;
+    }
+    .action-btn { flex: 1; font-size: 16px; cursor: pointer; }
+
+    /* ツールチップ（ホバー用） */
+    #tooltip {
+        display: none; position: absolute; background: rgba(0,0,0,0.85); color: #fff;
+        padding: 8px; border-radius: 4px; font-size: 12px; z-index: 100;
+        pointer-events: none; max-width: 250px; white-space: pre-wrap;
+    }
+
+    /* 記録パネル */
+    .records-panel {
+        display: none; position: absolute; top: 70px; right: 10px; width: 200px;
+        background: #fff; border: 2px solid #333; padding: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.2);
+        z-index: 50;
+    }
+    .records-panel p { margin: 5px 0; font-size: 13px; border-bottom: 1px dotted #ccc; padding-bottom: 2px; }
+</style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="header-left">
+            <div id="ui-crowns">王冠: 0</div>
+            <div id="ui-skillp">スキルP: 0</div>
+        </div>
+        <div class="header-center">
+            <div id="ui-pps" style="font-weight:bold;">0 ポイント/秒</div>
+            <div id="ui-time">経過時間: 0秒</div>
+        </div>
+        <div class="header-right">
+            <div id="ui-points" style="font-size:1.2em; font-weight:bold;">ポイント: 10</div>
+            <div class="header-buttons">
+                <button id="btn-records" onclick="toggleRecords()" style="font-size:12px;">記録</button>
+                <button id="btn-init" onclick="resetGame()" style="font-size:12px; color:red;">初期化</button>
+            </div>
+        </div>
+        
+        <div id="records-panel" class="records-panel">
+            <strong style="display:block; margin-bottom:5px;">記録</strong>
+            <p>最短経過時間:<br><span id="rec-shortest">未記録</span></p>
+            <p>深層最長滞在時間:<br><span id="rec-deep">0秒</span></p>
+            <p>瞬間最高ポイント/秒:<br><span id="rec-pps">0</span></p>
+        </div>
+    </div>
+
+    <div class="main-area">
+        <canvas id="gameCanvas" width="360" height="360"></canvas>
+        <div class="shop-container" id="shopContainer" style="width: 180px; height: 360px;">
+            <div class="tabs">
+                <div id="tab-blocks" class="tab active" onclick="switchTab('blocks')">ブロック</div>
+                <div id="tab-amulets" class="tab" onclick="switchTab('amulets')">お守り</div>
+            </div>
+            <div id="shop-blocks" class="shop-content"></div>
+            <div id="shop-amulets" class="shop-content" style="display:none;"></div>
+        </div>
+    </div>
+
+    <div class="footer-area">
+        <div class="skill-container" id="skill-container" style="width: 360px; height: 120px;">
+            </div>
+        <div class="action-buttons">
+            <button id="btn-rebirth" class="action-btn" onclick="rebirth()">転生</button>
+            <button id="btn-deep" class="action-btn" onclick="enterDeepLayer()">深層</button>
+        </div>
+    </div>
+
+    <div id="tooltip"></div>
+
+<script>
+    // 定数
+    const MAX_CROWNS = 2147483647;
+    const MAX_SKILLP = 2147483647;
+    const MAX_POINTS = 99999999;
+    const MAX_TIME = 2147483647;
+    const MAX_BLOCK_PRICE = 100000000;
+    const CELL_SIZE = 40;
+
+    // データ定義
+    const AMULET_DATA = {
+        up: { name: "上昇の御守", desc: "ポイント/秒が[x]倍になる。" },
+        luck: { name: "幸運の御守", desc: "ブロック生成確率が[x]倍になる。" },
+        durability: { name: "耐久の御守", desc: "ブロック削除確率が[x]倍になる。" }
+    };
+
+    const SKILL_DATA = {
+        big_chance: { name: "ビッグチャンス", weight: 0.7, desc: "7ブロックの出現確率を77倍にする。\n7ブロックが生成された瞬間、[x]%の確率でそれを削除し、777ブロックを生成する。" },
+        infinity_chance: { name: "インフィニティチャンス", weight: 0.8, desc: "8ブロックの出現確率を88倍にする。\n8ブロックが生成された瞬間、[x]%の確率でそれを削除し、∞ブロックを生成する。" },
+        purification: { name: "浄化", weight: 1.0, desc: "深層のポイント減少を[x]倍にする。" },
+        speed_lap: { name: "高速周回", weight: 1.0, desc: "99999999ポイント到達時、自動で転生を行い、1～9ブロックをそれぞれ[x]個ずつ、お守りをそれぞれ[y]個ずつ、ポイント消費0で自動購入する。この効果による転生時はダイアログをスキップする。" },
+        gekokujo: { name: "下剋上", weight: 5.0, desc: "1～3ブロックのポイント/秒、生成確率、削除確率を[x]倍にする。" },
+        mini_infinity: { name: "ミニ∞", weight: 5.0, desc: "8ブロックの削除確率、8ブロックの周囲8マスの削除確率を[x]倍にする。" },
+        mini_777: { name: "ミニ777", weight: 5.0, desc: "7ブロックの生成確率、7ブロックの周囲8マスのポイント/秒を[x]倍にする。" },
+        blessing: { name: "祝福", weight: 20.0, desc: "転生時に貰える王冠が[x]個増える。" },
+        expected_rookie: { name: "期待のルーキー", weight: 20.0, desc: "転生時に貰えるスキルPが[x]倍になる。" },
+        rookie: { name: "ルーキー", weight: 41.5, desc: "転生時、初期ポイントが[x]倍になる。" }
+    };
+
+    // ゲーム状態
+    let state = {
+        crowns: 0,
+        skillP: 0,
+        points: 10,
+        pps: 0,
+        elapsedTime: 0,
+        blocks: { 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 },
+        amulets: { up:0, luck:0, durability:0 },
+        skills: [], // {id: 'rookie', level: 1} の配列(最大3)
+        totalTicks: 0,
+        
+        // 深層モード用
+        deepMode: false,
+        deepTime: 0,
+        deepPoints: 100,
+        deepPpsMulti: 1.0,
+        normalBlocks: {}, // 深層突入時のバックアップ
+        
+        // 記録
+        records: {
+            shortestRebirth: null,
+            longestDeep: 0,
+            maxPps: 0
+        }
+    };
+
+    let grid = new Array(81).fill(null);
+    let gameLoopInterval = null;
+    let isGameRunning = false;
+    let activeTab = 'blocks';
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // 初期化
+    function init() {
+        loadGame();
+        drawGrid();
+        updateUI();
+        checkStartLoop();
+    }
+
+    // 保存＆ロード
+    function saveGame() {
+        localStorage.setItem('numberLifeGameSave', JSON.stringify(state));
+    }
+
+    function loadGame() {
+        const saved = localStorage.getItem('numberLifeGameSave');
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                Object.assign(state, parsed);
+                // 新規セーブデータの互換性確保
+                if (!state.records) state.records = { shortestRebirth: null, longestDeep: 0, maxPps: 0 };
+                if (!state.amulets) state.amulets = { up:0, luck:0, durability:0 };
+                if (!state.skills) state.skills = [];
+            } catch (e) { console.error("セーブデータの読み込みに失敗"); }
+        }
+        
+        if (state.deepMode) {
+            document.body.classList.add('dark-mode');
+        }
+    }
+
+    // ゲームリセット（初期化）処理
+    function resetGame() {
+        if (state.deepMode) return; // 深層モード時は無効
+        
+        if (confirm("全てのデータを初期化します。よろしいですか？")) {
+            // 0000〜9999のランダムな4桁の数字を生成し、ゼロ埋めする
+            const securityCode = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+            const userInput = prompt(`確認のため、表示された4桁の数字を半角で入力してください。\n(${securityCode})`);
+            
+            if (userInput === securityCode) {
+                // セーブデータ（JSON）を完全に削除してリロード
+                localStorage.removeItem('numberLifeGameSave');
+                location.reload();
+            } else if (userInput !== null) {
+                alert("数字が一致しませんでした。初期化をキャンセルします。");
+            }
+        }
+    }
+
+    // スキル効果の補助関数
+    function getSkillLevel(id) {
+        const s = state.skills.find(sk => sk.id === id);
+        return s ? s.level : 0;
+    }
+
+    // 計算関連（説明文置換含む）
+    function getBlockPrice(n) {
+        let price = Math.pow(n, 2) * 10;
+        for (let i = 0; i < state.blocks[n]; i++) {
+            price = Math.floor(price * 1.3);
+        }
+        return price;
+    }
+
+    function getAmuletPrice(id) {
+        return 100 * Math.pow(10, state.amulets[id] || 0);
+    }
+
+    function getAmuletDesc(id) {
+        let desc = AMULET_DATA[id].desc;
+        let count = state.amulets[id] || 0;
+        let x = id === 'durability' ? 1 - 0.1*count : 1 + 0.2*count;
+        return desc.replace('[x]', parseFloat(x.toFixed(1)));
+    }
+
+    function getSkillDesc(id, level) {
+        let desc = SKILL_DATA[id].desc;
+        let x = 0, y = 0;
+        switch(id) {
+            case 'big_chance': x = parseFloat((0.7 * level).toFixed(2)); break;
+            case 'infinity_chance': x = parseFloat((0.8 * level).toFixed(2)); break;
+            case 'purification': x = parseFloat((1.01 - 0.1 * level).toFixed(2)); break;
+            case 'speed_lap': x = level; y = Math.floor(0.5 * level); break;
+            case 'gekokujo': x = parseFloat((1 + 0.5 * level).toFixed(1)); break;
+            case 'mini_infinity': x = parseFloat((1 - 0.08 * level).toFixed(2)); break;
+            case 'mini_777': x = parseFloat((1 + 0.7 * level).toFixed(1)); break;
+            case 'blessing': x = Math.floor(0.5 * level); break;
+            case 'expected_rookie': x = parseFloat((1 + 0.1 * level).toFixed(1)); break;
+            case 'rookie': x = 5 * level; break;
+        }
+        return desc.replace('[x]', x).replace('[x]', x).replace('[y]', y);
+    }
+
+    function hasAdjacent(index, targetNum) {
+        const r = Math.floor(index / 9);
+        const c = index % 9;
+        for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+                if (dr === 0 && dc === 0) continue;
+                const nr = r + dr, nc = c + dc;
+                if (nr >= 0 && nr < 9 && nc >= 0 && nc < 9) {
+                    const block = grid[nr * 9 + nc];
+                    if (block !== null && typeof block === 'number' && block === targetNum) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // UI更新
+    function switchTab(tabName) {
+        activeTab = tabName;
+        document.getElementById('shop-blocks').style.display = tabName === 'blocks' ? 'block' : 'none';
+        document.getElementById('shop-amulets').style.display = tabName === 'amulets' ? 'block' : 'none';
+        document.getElementById('tab-blocks').className = 'tab' + (tabName === 'blocks' ? ' active' : '');
+        document.getElementById('tab-amulets').className = 'tab' + (tabName === 'amulets' ? ' active' : '');
+    }
+
+    function updateUI() {
+        // 数値補正
+        state.points = Math.min(MAX_POINTS, Math.max(0, Math.floor(state.points)));
+        state.deepPoints = Math.min(MAX_POINTS, Math.max(0, Math.floor(state.deepPoints)));
+
+        document.getElementById('ui-crowns').innerText = `王冠: ${state.crowns}`;
+        document.getElementById('ui-skillp').innerText = `スキルP: ${state.skillP}`;
+        document.getElementById('ui-pps').innerText = `${state.pps} ポイント/秒`;
+
+        if (state.deepMode) {
+            document.getElementById('ui-points').innerText = `深層ポイント: ${state.deepPoints}`;
+            document.getElementById('ui-time').innerText = `滞在時間: ${state.deepTime}秒`;
+            document.getElementById('btn-rebirth').style.visibility = 'hidden';
+            document.getElementById('btn-deep').style.visibility = 'hidden';
+            document.getElementById('btn-init').style.visibility = 'hidden'; // 深層モード時は初期化ボタンを隠す
+        } else {
+            document.getElementById('ui-points').innerText = `ポイント: ${state.points}`;
+            document.getElementById('ui-time').innerText = `経過時間: ${state.elapsedTime}秒`;
+            document.getElementById('btn-rebirth').style.visibility = 'visible';
+            document.getElementById('btn-deep').style.visibility = 'visible';
+            document.getElementById('btn-init').style.visibility = 'visible';
+        }
+
+        const isDisableShop = state.deepMode;
+
+        // ショップ：ブロック
+        const shopBlocks = document.getElementById('shop-blocks');
+        shopBlocks.innerHTML = '';
+        for (let n = 1; n <= 9; n++) {
+            if (n === 1 || state.blocks[n - 1] > 0 || state.deepMode) {
+                const price = getBlockPrice(n);
+                const isMax = price >= MAX_BLOCK_PRICE;
+                const canBuy = !isDisableShop && !isMax && state.points >= price;
+                
+                shopBlocks.innerHTML += `
+                    <div class="shop-item">
+                        <div>
+                            <strong>${n}ブロック</strong><br>所持: ${state.blocks[n]}<br>単価: ${isMax ? 'MAX' : price + ' P'}
+                        </div>
+                        <button onclick="buyBlock(${n}, ${price})" ${canBuy ? '' : 'disabled'}>購入</button>
+                    </div>`;
+            }
+        }
+
+        // ショップ：お守り
+        const shopAmulets = document.getElementById('shop-amulets');
+        shopAmulets.innerHTML = '';
+        for (let id in AMULET_DATA) {
+            const count = state.amulets[id] || 0;
+            const price = getAmuletPrice(id);
+            const isMax = count >= 5;
+            const canBuy = !isDisableShop && !isMax && state.points >= price;
+            const desc = getAmuletDesc(id);
+
+            shopAmulets.innerHTML += `
+                <div class="shop-item">
+                    <div style="flex-grow:1;">
+                        <strong onmouseover="showTooltip(event, '${desc}')" onmouseout="hideTooltip()" style="text-decoration: underline dotted; cursor:help;">${AMULET_DATA[id].name}</strong><br>所持: ${count}<br>単価: ${isMax ? 'MAX' : price + ' P'}
+                    </div>
+                    <button onclick="buyAmulet('${id}', ${price})" ${canBuy ? '' : 'disabled'}>購入</button>
+                </div>`;
+        }
+
+        // スキルUI
+        const skillContainer = document.getElementById('skill-container');
+        skillContainer.innerHTML = '';
+        for (let i = 0; i < 3; i++) {
+            if (i < state.skills.length) {
+                const sk = state.skills[i];
+                const data = SKILL_DATA[sk.id];
+                const cost = 10 * Math.pow(2, sk.level);
+                const isMax = sk.level >= 10;
+                const canEnhance = !isDisableShop && !isMax && state.skillP >= cost;
+                const desc = getSkillDesc(sk.id, sk.level);
+                
+                skillContainer.innerHTML += `
+                    <div class="skill-row">
+                        <span class="skill-name" onmouseover="showTooltip(event, '${desc}')" onmouseout="hideTooltip()">${data.name} Lv.${sk.level}</span>
+                        <div>
+                            <span style="font-size:10px; margin-right:5px;">強化: ${isMax ? 'MAX' : cost + 'SP'}</span>
+                            <button onclick="enhanceSkill(${i})" ${canEnhance ? '' : 'disabled'}>強化</button>
+                            <button onclick="deleteSkill(${i})" ${isDisableShop ? 'disabled' : ''}>削除</button>
+                        </div>
+                    </div>`;
+            } else {
+                const canAdd = !isDisableShop && state.skillP >= 10;
+                skillContainer.innerHTML += `
+                    <div class="skill-row" style="justify-content:center;">
+                        <button onclick="addSkill()" ${canAdd ? '' : 'disabled'} style="width:100%;">スキルを追加 (-10スキルP)</button>
+                    </div>`;
+            }
+        }
+    }
+
+    // 購入・スキル関連操作
+    function buyBlock(n, price) {
+        if (state.deepMode || price >= MAX_BLOCK_PRICE || state.points < price) return;
+        state.points -= price;
+        state.blocks[n]++;
+        saveGame(); updateUI(); checkStartLoop();
+    }
+
+    function buyAmulet(id, price) {
+        if (state.deepMode || state.amulets[id] >= 5 || state.points < price) return;
+        state.points -= price;
+        state.amulets[id]++;
+        saveGame(); updateUI();
+    }
+
+    function addSkill() {
+        if (state.deepMode || state.skillP < 10) return;
+        
+        let available = [];
+        let totalWeight = 0;
+        for (let key in SKILL_DATA) {
+            if (!state.skills.some(s => s.id === key)) {
+                available.push({ id: key, weight: SKILL_DATA[key].weight });
+                totalWeight += SKILL_DATA[key].weight;
+            }
+        }
+        if (available.length === 0) return;
+
+        state.skillP -= 10;
+        let r = Math.random() * totalWeight;
+        let picked = available[available.length - 1].id;
+        for (let s of available) {
+            if (r < s.weight) { picked = s.id; break; }
+            r -= s.weight;
+        }
+
+        state.skills.push({ id: picked, level: 1 });
+        saveGame(); updateUI();
+    }
+
+    function enhanceSkill(index) {
+        if (state.deepMode) return;
+        const sk = state.skills[index];
+        const cost = 10 * Math.pow(2, sk.level);
+        if (sk.level < 10 && state.skillP >= cost) {
+            state.skillP -= cost;
+            sk.level++;
+            saveGame(); updateUI();
+        }
+    }
+
+    function deleteSkill(index) {
+        if (state.deepMode) return;
+        state.skills.splice(index, 1);
+        saveGame(); updateUI();
+    }
+
+    // ゲームループ管理
+    function checkStartLoop() {
+        if (isGameRunning) return;
+        let totalBlocks = 0;
+        for (let n = 1; n <= 9; n++) totalBlocks += state.blocks[n];
+        
+        if (totalBlocks > 0 || state.deepMode) {
+            isGameRunning = true;
+            setTimeout(() => {
+                if(isGameRunning) gameLoopInterval = setInterval(gameStep, 1000);
+            }, 1000);
+        }
+    }
+
+    function gameStep() {
+        if (state.deepMode) state.deepTime++;
+        else state.elapsedTime++;
+
+        let hasInf = grid.some(b => b !== null && b.type === 'inf');
+        let has777 = grid.some(b => b !== null && b.type === '777');
+        
+        // 深層ではお守り無効
+        const amLuck = state.deepMode ? 0 : state.amulets.luck;
+        const amDurability = state.deepMode ? 0 : state.amulets.durability;
+        const amUp = state.deepMode ? 0 : state.amulets.up;
+
+        // 1. 削除判定
+        for (let i = 0; i < 81; i++) {
+            const b = grid[i];
+            if (b === null) continue;
+            
+            if (typeof b === 'object') {
+                b.age++;
+                if ((b.type === 'inf' && b.age >= 88) || (b.type === '777' && b.age >= 77)) {
+                    grid[i] = null;
+                }
+            } else {
+                let prob = 0.1;
+                prob *= (1 - 0.1 * amDurability);
+                if (hasInf) prob *= 0;
+                
+                if (b <= 3 && getSkillLevel('gekokujo') > 0) prob *= (1 + 0.5 * getSkillLevel('gekokujo'));
+                if (b === 8 && getSkillLevel('mini_infinity') > 0) prob *= (1 - 0.08 * getSkillLevel('mini_infinity'));
+                if (hasAdjacent(i, 8) && getSkillLevel('mini_infinity') > 0) prob *= (1 - 0.08 * getSkillLevel('mini_infinity'));
+
+                if (Math.random() < prob) grid[i] = null;
+            }
+        }
+
+        // 判定後、特殊ブロック存在状況を再取得
+        hasInf = grid.some(b => b !== null && b.type === 'inf');
+        has777 = grid.some(b => b !== null && b.type === '777');
+
+        // 2. 生成判定
+        for (let i = 0; i < 81; i++) {
+            if (grid[i] === null) {
+                let candidates = [];
+                let baseProb = 0.001 * (1 + 0.2 * amLuck);
+                if (hasInf) baseProb *= 8.8;
+                if (has777) baseProb *= 7.7;
+
+                for (let n = 1; n <= 9; n++) {
+                    if (state.blocks[n] > 0) {
+                        let p = baseProb;
+                        if (n <= 3 && getSkillLevel('gekokujo') > 0) p *= (1 + 0.5 * getSkillLevel('gekokujo'));
+                        if (n === 7 && getSkillLevel('mini_777') > 0) p *= (1 + 0.7 * getSkillLevel('mini_777'));
+                        if (n === 7 && getSkillLevel('big_chance') > 0) p *= 77;
+                        if (n === 8 && getSkillLevel('infinity_chance') > 0) p *= 88;
+                        
+                        if (Math.random() < p) candidates.push(n);
+                    }
+                }
+                
+                if (candidates.length > 0) {
+                    let picked = candidates[Math.floor(Math.random() * candidates.length)];
+                    
+                    if (picked === 7 && getSkillLevel('big_chance') > 0 && !has777) {
+                        if (Math.random() < 0.007 * getSkillLevel('big_chance')) {
+                            picked = { type: '777', age: 0 };
+                            has777 = true;
+                        }
+                    } else if (picked === 8 && getSkillLevel('infinity_chance') > 0 && !hasInf) {
+                        if (Math.random() < 0.008 * getSkillLevel('infinity_chance')) {
+                            picked = { type: 'inf', age: 0 };
+                            hasInf = true;
+                        }
+                    }
+                    grid[i] = picked;
+                }
+            }
+        }
+
+        // 3. PPSとポイント加算
+        let currentPPS = 0;
+        for (let i = 0; i < 81; i++) {
+            const b = grid[i];
+            if (b !== null && typeof b === 'number') {
+                let val = b * state.blocks[b];
+                if (b <= 3 && getSkillLevel('gekokujo') > 0) val *= (1 + 0.5 * getSkillLevel('gekokujo'));
+                if (hasAdjacent(i, 7) && getSkillLevel('mini_777') > 0) val *= (1 + 0.7 * getSkillLevel('mini_777'));
+                currentPPS += val;
+            }
+        }
+
+        currentPPS *= (1 + 0.2 * amUp);
+        if (has777) currentPPS *= 77.7;
+        if (state.deepMode) currentPPS *= state.deepPpsMulti;
+
+        state.pps = Math.floor(currentPPS);
+        if (state.pps > state.records.maxPps) state.records.maxPps = state.pps;
+
+        if (state.deepMode) {
+            state.deepPoints += state.pps;
+            let decrease = Math.pow(state.deepTime, 2);
+            if (getSkillLevel('purification') > 0) decrease *= (1.01 - 0.1 * getSkillLevel('purification'));
+            state.deepPoints -= Math.floor(decrease);
+            
+            if (state.deepTime % 10 === 0) state.deepPpsMulti *= 0.9;
+            if (state.deepTime % 50 === 0) state.deepPpsMulti *= 0.75;
+            if (state.deepTime % 100 === 0) state.deepPpsMulti *= 0.5;
+            
+            if (state.deepTime > state.records.longestDeep) state.records.longestDeep = state.deepTime;
+
+            if (state.deepPoints <= 0) {
+                alert(`深層ポイントが0になったため、通常モードに戻ります。\n滞在時間: ${state.deepTime}秒`);
+                state.skillP += Math.floor(Math.pow(state.deepTime, 2) / 10);
+                returnToNormalMode();
+            }
+        } else {
+            state.points += state.pps;
+            if (state.points >= MAX_POINTS) {
+                state.points = MAX_POINTS;
+                // 高速周回の自動転生（通常モード時のみ）
+                if (getSkillLevel('speed_lap') > 0) {
+                    doRebirth(true);
+                }
+            }
+        }
+
+        state.totalTicks++;
+        if (state.totalTicks % 10 === 0) saveGame();
+
+        drawGrid(); updateUI();
+    }
+
+    // 描画関連
+    function drawGrid() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = state.deepMode ? '#555' : '#ccc';
+        
+        for (let i = 0; i < 81; i++) {
+            const x = (i % 9) * CELL_SIZE;
+            const y = Math.floor(i / 9) * CELL_SIZE;
+            
+            ctx.strokeRect(x, y, CELL_SIZE, CELL_SIZE);
+            
+            const b = grid[i];
+            if (b !== null) {
+                const isSpecial = typeof b === 'object';
+                ctx.fillStyle = isSpecial ? '#FFD700' : '#4CAF50';
+                ctx.fillRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+                
+                ctx.fillStyle = isSpecial ? '#000' : '#fff';
+                ctx.font = isSpecial ? '16px sans-serif' : '20px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const text = isSpecial ? (b.type === '777' ? '777' : '∞') : b;
+                ctx.fillText(text, x + CELL_SIZE / 2, y + CELL_SIZE / 2);
+            }
+        }
+    }
+
+    // キャンバスインタラクション（クリック削除・ホバーツールチップ）
+    canvas.addEventListener('click', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const col = Math.floor((e.clientX - rect.left) / CELL_SIZE);
+        const row = Math.floor((e.clientY - rect.top) / CELL_SIZE);
+        const index = row * 9 + col;
+        
+        if (col >= 0 && col < 9 && row >= 0 && row < 9) {
+            const b = grid[index];
+            if (b !== null && typeof b === 'number') { // 特殊ブロックはクリック不可
+                grid[index] = null;
+                drawGrid();
+            }
+        }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const col = Math.floor((e.clientX - rect.left) / CELL_SIZE);
+        const row = Math.floor((e.clientY - rect.top) / CELL_SIZE);
+        const index = row * 9 + col;
+        
+        let text = '';
+        if (col >= 0 && col < 9 && row >= 0 && row < 9) {
+            const b = grid[index];
+            if (b !== null && typeof b === 'object') {
+                if (b.type === '777') text = "777ブロック\nポイント/秒が77.7倍になる。ブロック生成確率が7.7倍になる。\n生成されてから77秒後に消滅する。";
+                if (b.type === 'inf') text = "∞ブロック\nブロック生成確率が8.8倍になる。ブロック削除確率が0倍になる。\n生成されてから88秒後に消滅する。";
+            }
+        }
+        text ? showTooltip(e, text) : hideTooltip();
+    });
+    canvas.addEventListener('mouseout', hideTooltip);
+
+    // モード切替と転生
+    function enterDeepLayer() {
+        if (state.crowns < 1) {
+            alert("王冠が1個必要です。");
+            return;
+        }
+        if (confirm("深層は、通常よりも高難易度のモードになっています。ブロック・お守りの購入、スキルの追加・強化・削除は通常モードに戻るまで行うことができません。よろしいですか？\n※深層移行時、王冠を1個消費します。")) {
+            state.crowns--;
+            state.deepMode = true;
+            state.deepTime = 0;
+            state.deepPoints = 100;
+            state.deepPpsMulti = 1.0;
+            state.normalBlocks = JSON.parse(JSON.stringify(state.blocks));
+            for(let n=1; n<=9; n++) state.blocks[n] = 1;
+            
+            document.body.classList.add('dark-mode');
+            saveGame(); updateUI(); drawGrid();
+            checkStartLoop();
+        }
+    }
+
+    function returnToNormalMode() {
+        state.deepMode = false;
+        state.deepTime = 0;
+        state.deepPoints = 0;
+        state.blocks = JSON.parse(JSON.stringify(state.normalBlocks));
+        
+        document.body.classList.remove('dark-mode');
+        saveGame(); updateUI(); drawGrid();
+    }
+
+    function rebirth() {
+        if (state.points < 99999999) {
+            alert("99999999ポイント所持時に実行できます。");
+        } else {
+            if (confirm("転生を行うと、王冠・スキルPが貰えますが、ポイント・ブロック・お守りの所持数がリセットされます。よろしいですか？")) {
+                doRebirth(false);
+            }
+        }
+    }
+
+    function doRebirth(isSpeedLap) {
+        // 最短記録更新
+        if (state.records.shortestRebirth === null || state.elapsedTime < state.records.shortestRebirth) {
+            state.records.shortestRebirth = state.elapsedTime;
+        }
+
+        const bl = getSkillLevel('blessing');
+        state.crowns += 1 + Math.floor(0.5 * bl);
+        
+        const er = getSkillLevel('expected_rookie');
+        let t = state.elapsedTime > 0 ? state.elapsedTime : 1;
+        state.skillP += Math.floor((1000000 / t) * (1 + 0.1 * er));
+        
+        const ro = getSkillLevel('rookie');
+        state.points = 10 * (ro > 0 ? 5 * ro : 1);
+
+        if (isSpeedLap) {
+            const sl = getSkillLevel('speed_lap');
+            const x = sl;
+            const y = Math.floor(0.5 * sl);
+            for(let n=1; n<=9; n++) state.blocks[n] = x;
+            state.amulets.up = Math.min(5, y);
+            state.amulets.luck = Math.min(5, y);
+            state.amulets.durability = Math.min(5, y);
+        } else {
+            for(let n=1; n<=9; n++) state.blocks[n] = 0;
+            state.amulets = { up:0, luck:0, durability:0 };
+        }
+
+        state.elapsedTime = 0;
+        state.pps = 0;
+        grid.fill(null);
+        
+        clearInterval(gameLoopInterval);
+        isGameRunning = false;
+        
+        saveGame(); drawGrid(); updateUI();
+        if (isSpeedLap || getSkillLevel('speed_lap') > 0) checkStartLoop();
+    }
+
+    // ツールチップ・記録関連
+    function showTooltip(e, text) {
+        const t = document.getElementById('tooltip');
+        t.innerText = text;
+        t.style.display = 'block';
+        t.style.left = (e.clientX + 15) + 'px';
+        t.style.top = (e.clientY + 15) + 'px';
+    }
+    
+    function hideTooltip() {
+        document.getElementById('tooltip').style.display = 'none';
+    }
+
+    function toggleRecords() {
+        const pnl = document.getElementById('records-panel');
+        const btn = document.getElementById('btn-records');
+        if (pnl.style.display === 'none') {
+            document.getElementById('rec-shortest').innerText = state.records.shortestRebirth === null ? '未記録' : state.records.shortestRebirth + '秒';
+            document.getElementById('rec-deep').innerText = state.records.longestDeep + '秒';
+            document.getElementById('rec-pps').innerText = state.records.maxPps + ' P/秒';
+            pnl.style.display = 'block';
+            btn.innerText = '閉じる';
+        } else {
+            pnl.style.display = 'none';
+            btn.innerText = '記録';
+        }
+    }
+
+    // 起動
+    init();
+
+</script>
+</body>
+</html>
